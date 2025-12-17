@@ -155,8 +155,8 @@ class App:
             if isinstance(h, (int, float)):
                 hums.append(h)
 
-        t_avg = f"{sum(temps)/len(temps):.1f}" if temps else "n/a"
-        h_avg = f"{sum(hums)/len(hums):.1f}" if hums else "n/a"
+        t_avg = f"{sum(temps) / len(temps):.1f}" if temps else "n/a"
+        h_avg = f"{sum(hums) / len(hums):.1f}" if hums else "n/a"
         return t_avg, h_avg
 
     def on_connect(self, client, userdata, flags, rc, properties=None):

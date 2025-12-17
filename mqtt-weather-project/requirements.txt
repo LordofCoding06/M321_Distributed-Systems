@@ -1,0 +1,5 @@
+paho-mqtt
+rich
+pytest
+flake8
+bandit
