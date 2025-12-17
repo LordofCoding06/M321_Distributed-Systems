@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  station1:
+    build:
+      context: ./stations
+      dockerfile: Dockerfile
+    environment:
+      - STATION_ID=WS-01
+      - INTERVAL=5
+
+  station2:
+    build:
+      context: ./stations
+      dockerfile: Dockerfile
+    environment:
+      - STATION_ID=WS-02
+      - INTERVAL=7
+
+  station3:
+    build:
+      context: ./stations
+      dockerfile: Dockerfile
+    environment:
+      - STATION_ID=WS-03
+      - INTERVAL=3

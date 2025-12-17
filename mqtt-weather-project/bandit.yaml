@@ -1,0 +1,11 @@
+exclude_dirs:
+  - stations
+  - tests
+  - __pycache__
+  - .venv
+  - venv
+
+skips:
+  - B101
+  - B311
+  - B110

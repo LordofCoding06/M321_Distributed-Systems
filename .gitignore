@@ -1,0 +1,55 @@
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+
+# -------------------------
+# Testing / Linting
+# -------------------------
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# -------------------------
+# IDE / Editor
+# -------------------------
+.vscode/
+.idea/
+*.swp
+
+# -------------------------
+# OS
+# -------------------------
+.DS_Store
+Thumbs.db
+
+# -------------------------
+# Docker
+# -------------------------
+*.log
+docker-compose.override.yml
+
+# -------------------------
+# GitHub Actions
+# -------------------------
+.env
+
+# -------------------------
+# Misc
+# -------------------------
+*.tmp
