@@ -1,11 +1,11 @@
-import os
 import json
-import time
+import os
 import threading
+import time
 import warnings
-from datetime import datetime, timezone
-from typing import Any, Dict
 from collections import defaultdict, deque
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, Tuple
 
 import paho.mqtt.client as mqtt
 from rich import box
@@ -24,23 +24,23 @@ STALE_AFTER_SECONDS = 30
 
 def validate(temp, hum):
     """Validiert Temperatur und Luftfeuchtigkeit."""
-    errors = []
+    problems = []
 
     try:
         t = float(temp)
         if t == -999 or t < -50 or t > 60:
-            errors.append(f"invalid temperature {t}")
+            problems.append(f"invalid temperature {t}")
     except Exception:
-        errors.append(f"temperature not a number: {temp}")
+        problems.append(f"temperature not a number: {temp}")
 
     try:
         h = float(hum)
         if h < 0 or h > 100:
-            errors.append(f"invalid humidity {h}")
+            problems.append(f"invalid humidity {h}")
     except Exception:
-        errors.append(f"humidity not a number: {hum}")
+        problems.append(f"humidity not a number: {hum}")
 
-    return len(errors) == 0, errors
+    return len(problems) == 0, problems
 
 
 def parse_iso(ts):
@@ -56,14 +56,34 @@ def parse_iso(ts):
         return None
 
 
-def _fmt(value, unit=""):
+def _fmt(value, unit: str = "") -> str:
     if isinstance(value, (int, float)):
-        return f"{float(value):.1f}{(' ' + unit) if unit else ''}"
+        unit_suffix = f" {unit}" if unit else ""
+        return f"{float(value):.1f}{unit_suffix}"
     return "n/a" if value is None else str(value)
 
 
+def _to_float(value) -> Optional[float]:
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _default_hour_bucket() -> Dict[str, Any]:
+    return {
+        "count": 0,
+        "t_sum": 0.0,
+        "h_sum": 0.0,
+        "t_min": None,
+        "t_max": None,
+        "h_min": None,
+        "h_max": None,
+    }
+
+
 class App:
-    def __init__(self):
+    def __init__(self) -> None:
         self.client = mqtt.Client(
             client_id="weather_dashboard",
             clean_session=True,
@@ -76,28 +96,52 @@ class App:
 
         self.lock = threading.Lock()
         self.stations: Dict[str, Dict[str, Any]] = {}
-        self.outage_log = []
+        self.outage_log = []  # bleibt für spätere Erweiterungen
 
-    def _to_local_date(self, dt_utc: datetime) -> str:
+    @staticmethod
+    def _local_day(dt_utc: datetime) -> str:
         return dt_utc.astimezone().strftime("%Y-%m-%d")
 
-    def _to_local_hour(self, dt_utc: datetime) -> str:
+    @staticmethod
+    def _local_hour_key(dt_utc: datetime) -> str:
         return dt_utc.astimezone().strftime("%Y-%m-%d %H:00")
 
-    def _float_or_none(self, value):
-        try:
-            return float(value)
-        except Exception:
-            return None
+    def _ensure_station(self, sid: str) -> Dict[str, Any]:
+        return self.stations.setdefault(
+            sid,
+            {
+                "temperature": None,
+                "humidity": None,
+                "payload_ts": None,
+                "recv_at": None,
+                "valid": False,
+                "errors": [],
+                "buffer": deque(maxlen=2000),
+                "daily": {
+                    "date": None,
+                    "t_min": None,
+                    "t_max": None,
+                    "h_min": None,
+                    "h_max": None,
+                },
+                "hourly": defaultdict(_default_hour_bucket),
+            },
+        )
 
-    def _update_daily(self, station, recv_at, temp, hum):
-        day = self._to_local_date(recv_at)
+    def _update_daily(
+        self,
+        station: Dict[str, Any],
+        recv_at: datetime,
+        t: Optional[float],
+        h: Optional[float],
+    ) -> None:
+        today = self._local_day(recv_at)
         daily = station["daily"]
 
-        if daily["date"] != day:
+        if daily["date"] != today:
             daily.update(
                 {
-                    "date": day,
+                    "date": today,
                     "t_min": None,
                     "t_max": None,
                     "h_min": None,
@@ -105,50 +149,47 @@ class App:
                 }
             )
 
-        if temp is not None:
-            daily["t_min"] = (
-                temp if daily["t_min"] is None else min(daily["t_min"], temp)
-            )
-            daily["t_max"] = (
-                temp if daily["t_max"] is None else max(daily["t_max"], temp)
-            )
+        if t is not None:
+            daily["t_min"] = t if daily["t_min"] is None else min(daily["t_min"], t)
+            daily["t_max"] = t if daily["t_max"] is None else max(daily["t_max"], t)
 
-        if hum is not None:
-            daily["h_min"] = hum if daily["h_min"] is None else min(daily["h_min"], hum)
-            daily["h_max"] = hum if daily["h_max"] is None else max(daily["h_max"], hum)
+        if h is not None:
+            daily["h_min"] = h if daily["h_min"] is None else min(daily["h_min"], h)
+            daily["h_max"] = h if daily["h_max"] is None else max(daily["h_max"], h)
 
-    def _update_hourly(self, station, recv_at, temp, hum):
-        key = self._to_local_hour(recv_at)
-        hourly = station["hourly"][key]
-        hourly["count"] += 1
+    def _update_hourly(
+        self,
+        station: Dict[str, Any],
+        recv_at: datetime,
+        t: Optional[float],
+        h: Optional[float],
+    ) -> None:
+        key = self._local_hour_key(recv_at)
+        bucket = station["hourly"][key]
+        bucket["count"] += 1
 
-        if temp is not None:
-            hourly["t_sum"] += temp
-            hourly["t_min"] = (
-                temp if hourly["t_min"] is None else min(hourly["t_min"], temp)
-            )
-            hourly["t_max"] = (
-                temp if hourly["t_max"] is None else max(hourly["t_max"], temp)
-            )
+        if t is not None:
+            bucket["t_sum"] += t
+            bucket["t_min"] = t if bucket["t_min"] is None else min(bucket["t_min"], t)
+            bucket["t_max"] = t if bucket["t_max"] is None else max(bucket["t_max"], t)
 
-        if hum is not None:
-            hourly["h_sum"] += hum
-            hourly["h_min"] = (
-                hum if hourly["h_min"] is None else min(hourly["h_min"], hum)
-            )
-            hourly["h_max"] = (
-                hum if hourly["h_max"] is None else max(hourly["h_max"], hum)
-            )
+        if h is not None:
+            bucket["h_sum"] += h
+            bucket["h_min"] = h if bucket["h_min"] is None else min(bucket["h_min"], h)
+            bucket["h_max"] = h if bucket["h_max"] is None else max(bucket["h_max"], h)
 
-    def _avg_last_minutes(self, station, minutes=5):
-        if not station["buffer"]:
+    def _avg_last_minutes(
+        self, station: Dict[str, Any], minutes: int = 5
+    ) -> Tuple[str, str]:
+        buf = station.get("buffer")
+        if not buf:
             return "n/a", "n/a"
 
         cutoff = datetime.now(timezone.utc).timestamp() - minutes * 60
         temps, hums = [], []
 
-        for ts, t, h in reversed(station["buffer"]):
-            if ts.timestamp() < cutoff:
+        for dt, t, h in reversed(buf):
+            if dt.timestamp() < cutoff:
                 break
             if isinstance(t, (int, float)):
                 temps.append(t)
@@ -159,6 +200,7 @@ class App:
         h_avg = f"{sum(hums) / len(hums):.1f}" if hums else "n/a"
         return t_avg, h_avg
 
+    # --- MQTT callbacks ---
     def on_connect(self, client, userdata, flags, rc, properties=None):
         rc_val = getattr(rc, "value", rc)
         print(f"[MQTT] Connected rc={rc_val}")
@@ -184,65 +226,50 @@ class App:
         hum = payload.get("humidity")
         ts = payload.get("timestamp")
 
-        valid, errors = validate(temp, hum)
+        ok, problems = validate(temp, hum)
         recv_at = datetime.now(timezone.utc)
 
+        t_f = _to_float(temp)
+        h_f = _to_float(hum)
+        payload_dt = parse_iso(ts)
+
         with self.lock:
-            station = self.stations.setdefault(
-                sid,
-                {
-                    "temperature": None,
-                    "humidity": None,
-                    "payload_ts": None,
-                    "recv_at": None,
-                    "valid": False,
-                    "errors": [],
-                    "buffer": deque(maxlen=2000),
-                    "daily": {
-                        "date": None,
-                        "t_min": None,
-                        "t_max": None,
-                        "h_min": None,
-                        "h_max": None,
-                    },
-                    "hourly": defaultdict(
-                        lambda: {
-                            "count": 0,
-                            "t_sum": 0.0,
-                            "h_sum": 0.0,
-                            "t_min": None,
-                            "t_max": None,
-                            "h_min": None,
-                            "h_max": None,
-                        }
-                    ),
-                },
-            )
+            station = self._ensure_station(sid)
 
             station["temperature"] = temp
             station["humidity"] = hum
-            station["payload_ts"] = parse_iso(ts)
+            station["payload_ts"] = payload_dt
             station["recv_at"] = recv_at
-            station["valid"] = valid
-            station["errors"] = errors
+            station["valid"] = ok
+            station["errors"] = problems
 
-            t_f = self._float_or_none(temp)
-            h_f = self._float_or_none(hum)
             station["buffer"].append((recv_at, t_f, h_f))
             self._update_daily(station, recv_at, t_f, h_f)
             self._update_hourly(station, recv_at, t_f, h_f)
 
-    def start(self):
+    # --- lifecycle ---
+    def start(self) -> None:
         self.client.connect_async(BROKER_HOST, BROKER_PORT, keepalive=60)
         self.client.loop_start()
 
-    def stop(self):
+    def stop(self) -> None:
         self.client.loop_stop()
         self.client.disconnect()
 
-    def render(self):
+    # --- UI ---
+    def _status_for(self, station: Dict[str, Any], now: datetime) -> str:
+        last = station.get("recv_at")
+        if not last:
+            return "OFFLINE"
+        if (now - last).total_seconds() > STALE_AFTER_SECONDS:
+            return "STALE"
+        if not station.get("valid", False):
+            return "INVALID"
+        return "OK"
+
+    def render(self) -> Table:
         table = Table(title="MQTT Wetterdashboard", box=box.SIMPLE_HEAVY)
-        for col in [
+        headers = [
             "Station",
             "Temp",
             "Humidity",
@@ -251,46 +278,35 @@ class App:
             "Payload TS (UTC)",
             "Last Seen (UTC)",
             "Status",
-        ]:
-            table.add_column(col)
+        ]
+        for h in headers:
+            table.add_column(h)
 
         now = datetime.now(timezone.utc)
 
         with self.lock:
-            for sid, s in sorted(self.stations.items()):
-                last = s["recv_at"]
-                if not last:
-                    status = "OFFLINE"
-                elif (now - last).total_seconds() > STALE_AFTER_SECONDS:
-                    status = "STALE"
-                elif not s["valid"]:
-                    status = "INVALID"
-                else:
-                    status = "OK"
+            for sid, station in sorted(self.stations.items()):
+                status = self._status_for(station, now)
+                t_avg, h_avg = self._avg_last_minutes(station)
 
-                t_avg, h_avg = self._avg_last_minutes(s)
+                payload_ts = station.get("payload_ts")
+                recv_at = station.get("recv_at")
+
                 table.add_row(
                     sid,
-                    _fmt(s["temperature"], "°C"),
-                    _fmt(s["humidity"], "%"),
+                    _fmt(station.get("temperature"), "°C"),
+                    _fmt(station.get("humidity"), "%"),
                     t_avg,
                     h_avg,
-                    (
-                        s["payload_ts"].isoformat(timespec="seconds")
-                        if s["payload_ts"]
-                        else "n/a"
-                    ),
-                    (
-                        s["recv_at"].isoformat(timespec="seconds")
-                        if s["recv_at"]
-                        else "n/a"
-                    ),
+                    payload_ts.isoformat(timespec="seconds") if payload_ts else "n/a",
+                    recv_at.isoformat(timespec="seconds") if recv_at else "n/a",
                     status,
                 )
+
         return table
 
 
-def main():
+def main() -> None:
     app = App()
     app.start()
     try:

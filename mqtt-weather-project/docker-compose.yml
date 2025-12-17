@@ -1,33 +1,31 @@
 version: "3.9"
 
 services:
-  mosquitto:
+  mqtt-broker:
     image: eclipse-mosquitto
+    container_name: mosquitto
     ports:
-      - "1883:1883"
+      - 1883:1883
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
 
-  station1:
+  weather-station-01:
     build:
       context: ./stations
-      dockerfile: Dockerfile
     environment:
-      - STATION_ID=WS-01
-      - INTERVAL=5
+      STATION_ID: WS-01
+      INTERVAL: 5
 
-  station2:
+  weather-station-02:
     build:
       context: ./stations
-      dockerfile: Dockerfile
     environment:
-      - STATION_ID=WS-02
-      - INTERVAL=7
+      STATION_ID: WS-02
+      INTERVAL: 7
 
-  station3:
+  weather-station-03:
     build:
       context: ./stations
-      dockerfile: Dockerfile
     environment:
-      - STATION_ID=WS-03
-      - INTERVAL=3
+      STATION_ID: WS-03
+      INTERVAL: 3

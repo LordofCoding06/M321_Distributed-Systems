@@ -1,60 +1,40 @@
 from datetime import datetime, timezone
 
-from weather_client import validate, parse_iso
+from weather_client import parse_iso, validate
 
 
-def test_validate_accepts_valid_values():
-    temp = "20.5"
-    hum = "50"
-
-    is_valid, errors = validate(temp, hum)
-
-    assert is_valid is True
-    assert errors == []
+def test_validate_ok_for_reasonable_inputs():
+    ok, problems = validate("20.5", "50")
+    assert ok
+    assert problems == []
 
 
-def test_validate_rejects_invalid_values():
-    temp = "-999"
-    hum = "150"
+def test_validate_flags_out_of_range_numbers():
+    ok, problems = validate("-999", "150")
 
-    is_valid, errors = validate(temp, hum)
-
-    assert is_valid is False
-    assert any("invalid temperature" in e for e in errors)
-    assert any("invalid humidity" in e for e in errors)
+    assert ok is False
+    assert any("invalid temperature" in msg for msg in problems)
+    assert any("invalid humidity" in msg for msg in problems)
 
 
-def test_validate_rejects_non_numeric_values():
-    temp = "abc"
-    hum = "xyz"
+def test_validate_flags_non_numeric_strings():
+    ok, problems = validate("abc", "xyz")
 
-    is_valid, errors = validate(temp, hum)
-
-    assert is_valid is False
-    assert any("temperature not a number" in e for e in errors)
-    assert any("humidity not a number" in e for e in errors)
+    assert not ok
+    assert any("temperature not a number" in msg for msg in problems)
+    assert any("humidity not a number" in msg for msg in problems)
 
 
-def test_parse_iso_valid_and_invalid():
-    valid_ts = "2024-01-02T12:34:56Z"
-    invalid_ts = "not-a-timestamp"
+def test_parse_iso_handles_valid_and_invalid_inputs():
+    parsed = parse_iso("2024-01-02T12:34:56Z")
+    assert isinstance(parsed, datetime)
+    assert parsed.tzinfo == timezone.utc
+    assert (parsed.year, parsed.month, parsed.day) == (2024, 1, 2)
+    assert (parsed.hour, parsed.minute, parsed.second) == (12, 34, 56)
 
-    dt_valid = parse_iso(valid_ts)
-    dt_invalid = parse_iso(invalid_ts)
-
-    assert isinstance(dt_valid, datetime)
-    assert dt_valid.tzinfo == timezone.utc
-    assert (
-        dt_valid.year == 2024
-        and dt_valid.month == 1
-        and dt_valid.day == 2
-        and dt_valid.hour == 12
-        and dt_valid.minute == 34
-        and dt_valid.second == 56
-    )
-    assert dt_invalid is None
+    assert parse_iso("not-a-timestamp") is None
 
 
-def test_parse_iso_non_string_returns_none():
+def test_parse_iso_returns_none_for_non_strings():
     assert parse_iso(None) is None
     assert parse_iso(12345) is None
