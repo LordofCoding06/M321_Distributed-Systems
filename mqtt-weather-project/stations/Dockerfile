@@ -1,8 +1,9 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 WORKDIR /app
+
 COPY station1.py .
 
-RUN pip install paho-mqtt
+RUN python -m pip install --no-cache-dir paho-mqtt
 
 CMD ["python", "station1.py"]
