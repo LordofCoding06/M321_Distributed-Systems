@@ -42,12 +42,14 @@ mqtt-weather-project/
 ## 🔄 CI/CD Pipeline (Kurzüberblick)
 
 ### Pull Request auf `main`
+
 - ✔ Lint (flake8)
 - ✔ Tests (pytest)
 - ✔ Security Scan (Bandit)
 - ❌ **Kein Docker Push**
 
 ### Push auf `main`
+
 - ✔ Lint → Tests → Security Scan
 - 🐳 Docker Build & Push nach Docker Hub  
   → `larsstalder/mqtt-weather-station`
@@ -64,6 +66,7 @@ larsstalder/mqtt-weather-station
 ```
 
 Beispiel:
+
 ```bash
 docker pull larsstalder/mqtt-weather-station
 ```
@@ -89,13 +92,13 @@ flake8 mqtt-weather-project
 
 ## ⚙️ Konfiguration (Environment Variablen)
 
-| Variable        | Beschreibung              | Default     |
-|-----------------|---------------------------|-------------|
-| `BROKER_HOST`   | MQTT Broker Host          | `localhost` |
-| `BROKER_PORT`   | MQTT Broker Port          | `1883`      |
-| `TOPIC`         | MQTT Topic                | `weather`   |
-| `STATION_ID`    | ID der Wetterstation      | `WS-XX`     |
-| `INTERVAL`      | Sendeintervall (Sek.)     | `5`         |
+| Variable      | Beschreibung          | Default     |
+| ------------- | --------------------- | ----------- |
+| `BROKER_HOST` | MQTT Broker Host      | `localhost` |
+| `BROKER_PORT` | MQTT Broker Port      | `1883`      |
+| `TOPIC`       | MQTT Topic            | `weather`   |
+| `STATION_ID`  | ID der Wetterstation  | `WS-XX`     |
+| `INTERVAL`    | Sendeintervall (Sek.) | `5`         |
 
 ---
 
