@@ -13,7 +13,7 @@ def test_validate_accepts_valid_values():
     assert errors == []
 
 
-def test_validate_rejects_invalid_values(:
+def test_validate_rejects_invalid_values():
     temp = "-999"
     hum = "150"
 
